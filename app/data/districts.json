@@ -1,0 +1,27 @@
+{
+  "_about": "22 districts of Punjab used by the heat-risk system. Malerkotla (formed 2021) is excluded: no Census 2011 data. lat/lon = district headquarters town, used as the weather point. 'census' = key into census_districts_2011.json. Pathankot (split from Gurdaspur) and Fazilka (split from Firozpur) were created after the 2011 Census enumeration, so they use their parent district's 2011 figures; their vulnerability equals the parent's.",
+  "districts": [
+    {"id": "amritsar", "name": "Amritsar", "hq": "Amritsar", "lat": 31.634, "lon": 74.872, "census": "amritsar", "region": "Majha"},
+    {"id": "barnala", "name": "Barnala", "hq": "Barnala", "lat": 30.378, "lon": 75.546, "census": "barnala", "region": "Malwa"},
+    {"id": "bathinda", "name": "Bathinda", "hq": "Bathinda", "lat": 30.211, "lon": 74.945, "census": "bathinda", "region": "Malwa"},
+    {"id": "faridkot", "name": "Faridkot", "hq": "Faridkot", "lat": 30.675, "lon": 74.756, "census": "faridkot", "region": "Malwa"},
+    {"id": "fatehgarh_sahib", "name": "Fatehgarh Sahib", "hq": "Fatehgarh Sahib", "lat": 30.648, "lon": 76.390, "census": "fatehgarh_sahib", "region": "Malwa"},
+    {"id": "fazilka", "name": "Fazilka", "hq": "Fazilka", "lat": 30.403, "lon": 74.028, "census": "firozpur", "census_note": "Part of Firozpur district in Census 2011; Firozpur figures used.", "region": "Malwa"},
+    {"id": "firozpur", "name": "Firozpur", "hq": "Firozpur", "lat": 30.933, "lon": 74.613, "census": "firozpur", "census_note": "2011 figures include present-day Fazilka district.", "region": "Malwa"},
+    {"id": "gurdaspur", "name": "Gurdaspur", "hq": "Gurdaspur", "lat": 32.040, "lon": 75.403, "census": "gurdaspur", "census_note": "2011 figures include present-day Pathankot district.", "region": "Majha"},
+    {"id": "hoshiarpur", "name": "Hoshiarpur", "hq": "Hoshiarpur", "lat": 31.532, "lon": 75.917, "census": "hoshiarpur", "region": "Doaba"},
+    {"id": "jalandhar", "name": "Jalandhar", "hq": "Jalandhar", "lat": 31.326, "lon": 75.576, "census": "jalandhar", "region": "Doaba"},
+    {"id": "kapurthala", "name": "Kapurthala", "hq": "Kapurthala", "lat": 31.380, "lon": 75.380, "census": "kapurthala", "region": "Doaba"},
+    {"id": "ludhiana", "name": "Ludhiana", "hq": "Ludhiana", "lat": 30.901, "lon": 75.857, "census": "ludhiana", "region": "Malwa"},
+    {"id": "mansa", "name": "Mansa", "hq": "Mansa", "lat": 29.999, "lon": 75.393, "census": "mansa", "region": "Malwa"},
+    {"id": "moga", "name": "Moga", "hq": "Moga", "lat": 30.817, "lon": 75.170, "census": "moga", "region": "Malwa"},
+    {"id": "pathankot", "name": "Pathankot", "hq": "Pathankot", "lat": 32.274, "lon": 75.652, "census": "gurdaspur", "census_note": "Part of Gurdaspur district in Census 2011; Gurdaspur figures used.", "region": "Majha"},
+    {"id": "patiala", "name": "Patiala", "hq": "Patiala", "lat": 30.340, "lon": 76.386, "census": "patiala", "region": "Malwa"},
+    {"id": "rupnagar", "name": "Rupnagar", "hq": "Rupnagar (Ropar)", "lat": 30.969, "lon": 76.526, "census": "rupnagar", "region": "Malwa (Puadh)"},
+    {"id": "sas_nagar", "name": "Sahibzada Ajit Singh Nagar (Mohali)", "hq": "Mohali", "lat": 30.704, "lon": 76.717, "census": "sas_nagar", "region": "Malwa (Puadh)"},
+    {"id": "sangrur", "name": "Sangrur", "hq": "Sangrur", "lat": 30.245, "lon": 75.844, "census": "sangrur", "census_note": "2011 figures include present-day Malerkotla district.", "region": "Malwa"},
+    {"id": "sbs_nagar", "name": "Shaheed Bhagat Singh Nagar (Nawanshahr)", "hq": "Nawanshahr", "lat": 31.125, "lon": 76.116, "census": "sbs_nagar", "region": "Doaba"},
+    {"id": "sri_muktsar_sahib", "name": "Sri Muktsar Sahib", "hq": "Sri Muktsar Sahib", "lat": 30.474, "lon": 74.516, "census": "sri_muktsar_sahib", "region": "Malwa"},
+    {"id": "tarn_taran", "name": "Tarn Taran", "hq": "Tarn Taran", "lat": 31.451, "lon": 74.928, "census": "tarn_taran", "region": "Majha"}
+  ]
+}
