@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTSI-26083 | Heatwave Early Warning Command Center</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+
+    <!-- Load the Punjab GeoJSON data directly as a JavaScript variable to avoid fetch/CORS errors -->
+    <script src="punjabData.js"></script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        gray: {
+                            950: '#0a0f1a',
+                            900: '#111827',
+                            800: '#1f2937',
+                            700: '#374151',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body { background-color: #0a0f1a; color: #e5e7eb; overflow-x: hidden; }
+        
+        /* Map Overrides - Pure dark void background */
+        #map { background-color: #0a0f1a; border-radius: 0.75rem; }
+        .leaflet-container { font-family: 'Inter', sans-serif; background: #0a0f1a !important; }
+        
+        /* Risk Colors for GeoJSON */
+        .risk-safe { fill: #10b981; color: #34d399; }
+        .risk-caution { fill: #f59e0b; color: #fbbf24; }
+        .risk-danger { fill: #f97316; color: #fb923c; }
+        .risk-extreme { fill: #e11d48; color: #fb7185; }
+        
+        /* UI Elements */
+        .glass-panel {
+            background: rgba(31, 41, 55, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(55, 65, 81, 0.5);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #111827; }
+        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+
+        .pulse-red {
+            animation: pulse-red 2s infinite;
+        }
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(225, 29, 72, 0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(225, 29, 72, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(225, 29, 72, 0); }
+        }
+
+        /* Toast Animation */
+        #toast-container {
+            transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+            transform: translateY(150%);
+            opacity: 0;
+        }
+        #toast-container.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col font-sans">
+
+    <!-- Header -->
+    <header class="h-16 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-6 shrink-0 z-20 relative">
+        <div class="flex items-center gap-4">
+            <div class="bg-blue-600/20 p-2 rounded-lg border border-blue-500/30">
+                <i class="ph ph-thermometer-hot text-2xl text-blue-400"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-lg tracking-wide text-white">HTSI-Core <span class="text-blue-500 font-normal">| SIH 26083</span></h1>
+                <p class="text-xs text-gray-400 font-mono">PUNJAB STATE COMMAND CENTER</p>
+            </div>
+        </div>
+        
+        <div class="flex items-center gap-6">
+            <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-800 border border-gray-700">
+                <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                <span class="text-xs font-mono text-gray-300">API CONNECTED</span>
+            </div>
+            <div class="text-right font-mono">
+                <div id="sys-time" class="text-sm text-gray-200">00:00:00</div>
+                <div id="sys-date" class="text-xs text-gray-500 font-bold text-yellow-400">SIMULATION: 26 MAY 2024</div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Layout -->
+    <main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 p-4 overflow-y-auto lg:overflow-hidden">
+        
+        <!-- LEFT PANEL: Demographics & Ward Status -->
+        <div class="lg:col-span-3 flex flex-col gap-4 overflow-y-auto h-full pr-1">
+            
+            <!-- Selected Ward Status Card -->
+            <div class="glass-panel rounded-xl p-5 relative overflow-hidden group">
+                <div class="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/5 to-transparent rounded-bl-full -z-10"></div>
+                
+                <h2 class="text-sm uppercase tracking-wider text-gray-400 mb-1">Target District</h2>
+                <h3 id="ward-name" class="text-2xl font-bold text-white mb-4">Punjab Overview</h3>
+                
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div class="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
+                        <div class="text-xs text-gray-400 mb-1">Current WBGT</div>
+                        <div class="flex items-baseline gap-1">
+                            <span id="ward-wbgt" class="text-3xl font-bold text-white font-mono">--</span>
+                            <span class="text-sm text-gray-400">°C</span>
+                        </div>
+                    </div>
+                    <div class="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50 flex flex-col justify-center items-center text-center">
+                        <div class="text-xs text-gray-400 mb-1">Risk Level</div>
+                        <span id="ward-risk" class="px-2 py-1 rounded text-xs font-bold uppercase tracking-wide bg-gray-700 text-gray-300">UNKNOWN</span>
+                    </div>
+                </div>
+
+                <p id="ward-desc" class="text-sm text-gray-400 leading-relaxed border-t border-gray-700/50 pt-3">
+                    Click on the map to view hyper-local thermal stress metrics and vulnerability data.
+                </p>
+            </div>
+
+            <!-- Demographics Vulnerability -->
+            <div class="glass-panel rounded-xl p-5 flex-1">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-sm font-semibold text-gray-200 flex items-center gap-2">
+                        <i class="ph ph-users-three text-blue-400"></i>
+                        Vulnerability Data
+                    </h3>
+                </div>
+
+                <div class="space-y-5">
+                    <!-- Elderly -->
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-gray-400">Elderly Population (>50 yrs)</span>
+                            <span id="demo-elderly-val" class="font-mono text-gray-200">--%</span>
+                        </div>
+                        <div class="w-full bg-gray-800 rounded-full h-2">
+                            <div id="demo-elderly-bar" class="bg-blue-500 h-2 rounded-full transition-all duration-1000" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- Outdoor Workers -->
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-gray-400">Agricultural Workers</span>
+                            <span id="demo-workers-val" class="font-mono text-gray-200">--%</span>
+                        </div>
+                        <div class="w-full bg-gray-800 rounded-full h-2">
+                            <div id="demo-workers-bar" class="bg-orange-500 h-2 rounded-full transition-all duration-1000" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Slum / High Density -->
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-gray-400">Illiteracy Rate (Vulnerability)</span>
+                            <span id="demo-density-val" class="font-mono text-gray-200">--%</span>
+                        </div>
+                        <div class="w-full bg-gray-800 rounded-full h-2">
+                            <div id="demo-density-bar" class="bg-purple-500 h-2 rounded-full transition-all duration-1000" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-6 bg-gray-800/40 border border-gray-700/50 p-3 rounded-lg text-xs text-gray-400">
+                    <i class="ph ph-info mr-1"></i> Data mapped dynamically from 2011 Census metrics retrieved via the API.
+                </div>
+            </div>
+        </div>
+
+        <!-- CENTER PANEL: Interactive Leaflet Map -->
+        <div class="lg:col-span-6 glass-panel rounded-xl flex flex-col relative min-h-[400px]">
+            <div class="absolute top-4 left-4 z-[1000] bg-gray-900/80 backdrop-blur px-3 py-2 rounded-lg border border-gray-700 shadow-lg">
+                <h2 class="text-sm font-semibold text-gray-200 mb-2">Live Heat Stress Map (Punjab)</h2>
+                <div class="flex gap-3 text-xs">
+                    <div class="flex items-center gap-1"><div class="w-3 h-3 rounded bg-emerald-500/50 border border-emerald-500"></div> Safe</div>
+                    <div class="flex items-center gap-1"><div class="w-3 h-3 rounded bg-yellow-500/50 border border-yellow-500"></div> Caution</div>
+                    <div class="flex items-center gap-1"><div class="w-3 h-3 rounded bg-orange-500/50 border border-orange-500"></div> Danger</div>
+                    <div class="flex items-center gap-1"><div class="w-3 h-3 rounded bg-rose-500/50 border border-rose-500"></div> Extreme</div>
+                </div>
+            </div>
+
+            <!-- Leaflet Map Container -->
+            <div id="map" class="w-full h-full rounded-xl z-10"></div>
+        </div>
+
+        <!-- RIGHT PANEL: Telemetry & Actions -->
+        <div class="lg:col-span-3 flex flex-col gap-4 h-full overflow-y-auto pr-1">
+            
+            <!-- Live Sensor Feeds -->
+            <div class="glass-panel rounded-xl p-4">
+                <h3 class="text-sm font-semibold text-gray-200 mb-3 flex items-center gap-2">
+                    <i class="ph ph-broadcast text-green-400 animate-pulse"></i>
+                    Live Backend Telemetry
+                </h3>
+                
+                <div class="grid grid-cols-2 gap-3">
+                    <!-- Temp -->
+                    <div class="bg-gray-900 rounded-lg p-2 border border-gray-700 flex flex-col">
+                        <span class="text-[10px] text-gray-500 uppercase">Dry-Bulb Temp</span>
+                        <div class="flex items-end gap-1 mt-1">
+                            <span id="tele-temp" class="text-lg font-mono font-bold text-gray-200">--</span>
+                            <span class="text-xs text-gray-500 mb-1">°C</span>
+                        </div>
+                    </div>
+                    <!-- Humidity -->
+                    <div class="bg-gray-900 rounded-lg p-2 border border-gray-700 flex flex-col">
+                        <span class="text-[10px] text-gray-500 uppercase">Rel Humidity</span>
+                        <div class="flex items-end gap-1 mt-1">
+                            <span id="tele-hum" class="text-lg font-mono font-bold text-blue-400">--</span>
+                            <span class="text-xs text-gray-500 mb-1">%</span>
+                        </div>
+                    </div>
+                    <!-- Solar Rad -->
+                    <div class="bg-gray-900 rounded-lg p-2 border border-gray-700 flex flex-col">
+                        <span class="text-[10px] text-gray-500 uppercase">Solar Load</span>
+                        <div class="flex items-end gap-1 mt-1">
+                            <span id="tele-rad" class="text-lg font-mono font-bold text-yellow-400">--</span>
+                            <span class="text-xs text-gray-500 mb-1">°C</span>
+                        </div>
+                    </div>
+                    <!-- Wind -->
+                    <div class="bg-gray-900 rounded-lg p-2 border border-gray-700 flex flex-col">
+                        <span class="text-[10px] text-gray-500 uppercase">Wind Speed</span>
+                        <div class="flex items-end gap-1 mt-1">
+                            <span id="tele-wind" class="text-lg font-mono font-bold text-gray-300">--</span>
+                            <span class="text-xs text-gray-500 mb-1">m/s</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Predictive Chart -->
+            <div class="glass-panel rounded-xl p-4 flex-1 flex flex-col">
+                <h3 class="text-sm font-semibold text-gray-200 mb-1 flex items-center gap-2">
+                    <i class="ph ph-trend-up text-purple-400"></i>
+                    6-Day Tmax Forecast
+                </h3>
+                <p class="text-[10px] text-gray-500 mb-3">Projected maximum temperatures (API Forecast Data).</p>
+                <div class="relative flex-1 w-full min-h-[150px]">
+                    <canvas id="predictionChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Action Trigger -->
+            <div class="glass-panel rounded-xl p-4 border-l-4 border-l-gray-600 transition-colors duration-300" id="action-panel">
+                <h3 class="text-sm font-bold text-white mb-2">Automated Interventions</h3>
+                <div class="space-y-2 mb-4">
+                    <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                        <input type="checkbox" checked class="form-checkbox bg-gray-800 border-gray-600 text-rose-500 rounded rounded-sm h-3 w-3" disabled>
+                        <span>Open Municipal Cooling Centers</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                        <input type="checkbox" checked class="form-checkbox bg-gray-800 border-gray-600 text-rose-500 rounded-sm h-3 w-3" disabled>
+                        <span>Suspend Outdoor Agri/Const. Work</span>
+                    </label>
+                </div>
+                
+                <button onclick="triggerAlert()" id="trigger-btn" class="w-full py-3 rounded-lg bg-gray-700 text-gray-400 font-bold text-sm transition-all duration-300 flex items-center justify-center gap-2 cursor-not-allowed">
+                    <i class="ph ph-warning-circle text-lg"></i>
+                    <span>TRIGGER SMS ALERT API</span>
+                </button>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Custom Toast Notification -->
+    <div id="toast-container" class="fixed bottom-6 right-6 z-[2000] flex flex-col gap-2 pointer-events-none">
+        <div class="glass-panel bg-gray-900/95 border-l-4 border-l-rose-500 p-4 rounded-lg shadow-2xl flex items-start gap-4 max-w-sm">
+            <div class="text-rose-500 mt-1"><i class="ph ph-siren text-2xl animate-pulse"></i></div>
+            <div>
+                <h4 class="text-sm font-bold text-white mb-1">HEAT ACTION PLAN INITIATED</h4>
+                <p class="text-xs text-gray-300">API call successful. Dispatching SMS/WhatsApp alerts to District Administrators and local health officials.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- System Clock ---
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('sys-time').textContent = now.toLocaleTimeString('en-US', { hour12: false });
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // --- Core Logic for Seshant's API + Leaflet ---
+        let riskChart;
+        let map;
+        let geojsonLayer;
+        let districtData = {}; // Cache overview data
+
+        // Initialize the Chart.js instance
+        function initChart() {
+            Chart.defaults.color = '#6b7280';
+            Chart.defaults.font.family = 'Inter';
+            const ctx = document.getElementById('predictionChart').getContext('2d');
+            let gradient = ctx.createLinearGradient(0, 0, 0, 400);
+            gradient.addColorStop(0, 'rgba(168, 85, 247, 0.5)'); 
+            gradient.addColorStop(1, 'rgba(168, 85, 247, 0)');
+
+            riskChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [], 
+                    datasets: [{
+                        label: 'Forecast Tmax (°C)',
+                        data: [],
+                        borderColor: '#a855f7',
+                        backgroundColor: gradient,
+                        borderWidth: 2,
+                        pointBackgroundColor: '#fff',
+                        pointBorderColor: '#a855f7',
+                        pointRadius: 4,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+                    scales: {
+                        y: { beginAtZero: false, grid: { color: 'rgba(55, 65, 81, 0.5)' }, border: { display: false } },
+                        x: { grid: { display: false }, border: { display: false } }
+                    }
+                }
+            });
+        }
+        
+        // Setup Leaflet Map
+        function initMap() {
+            map = L.map('map', {
+                zoomControl: false,
+                attributionControl: false
+            }).setView([30.9, 75.85], 7); 
+            L.control.zoom({ position: 'topright' }).addTo(map);
+        }
+
+        // Apply colors to geojson features based on API overview data
+        function styleFeature(feature) {
+            const distName = feature.properties.Dist_Name || feature.properties.name || feature.properties.DISTRICT;
+            if(!distName) return { fillColor: '#374151', weight: 1, opacity: 1, color: '#ffffff', fillOpacity: 0.4 };
+            
+            let apiId = distName.toLowerCase().replace(/ /g, '_');
+            if (apiId === "shahid_bhagat_singh_nagar" || apiId === "nawan_shehar") apiId = "sbs_nagar";
+            if (apiId === "sahibzada_ajit_singh_nagar") apiId = "sas_nagar";
+            if (apiId === "muktsar") apiId = "sri_muktsar_sahib";
+            
+            let color = '#34d399'; // Default safe green
+            
+            const distData = districtData[apiId];
+            if(distData) {
+                let level = 0;
+                if (distData?.alert?.level !== undefined) {
+                    level = distData.alert.level;
+                } else if (distData?.max_alert?.level !== undefined) {
+                    level = distData.max_alert.level;
+                } else if (distData?.summary?.max_alert?.level !== undefined) {
+                    level = distData.summary.max_alert.level;
+                } else if (distData?.level !== undefined) {
+                    level = distData.level;
+                }
+                
+                if(level === 1) color = '#fbbf24';
+                if(level === 2) color = '#fb923c';
+                if(level >= 3) color = '#fb7185';
+            }
+            
+            return {
+                fillColor: color,
+                weight: 1.5,
+                opacity: 1,
+                color: '#ffffff', 
+                fillOpacity: 0.8
+            };
+        }
+
+        // Add hover effects and click events to map polygons
+        function onEachFeature(feature, layer) {
+            layer.on({
+                mouseover: (e) => {
+                    const l = e.target;
+                    l.setStyle({ weight: 3, color: '#fff', fillOpacity: 1.0 });
+                    if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) l.bringToFront();
+                },
+                mouseout: (e) => geojsonLayer.resetStyle(e.target),
+                click: (e) => {
+                    let distName = feature.properties.Dist_Name || feature.properties.name || feature.properties.DISTRICT;
+                    let apiId = distName.toLowerCase().replace(/ /g, '_');
+                    
+                    if (apiId === "shahid_bhagat_singh_nagar" || apiId === "nawan_shehar") apiId = "sbs_nagar";
+                    if (apiId === "sahibzada_ajit_singh_nagar") apiId = "sas_nagar";
+                    if (apiId === "muktsar") apiId = "sri_muktsar_sahib";
+                    
+                    selectDistrict(apiId, distName);
+                }
+            });
+        }
+
+        // Fetch Data from Backend
+        async function selectDistrict(districtId, displayName) {
+            document.getElementById('ward-name').textContent = "Loading Data...";
+
+            try {
+                // Fetch the simulated date
+                const response = await fetch(`http://127.0.0.1:8000/districts/${districtId}/risk?replay_date=2024-05-26`);
+                if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+                const data = await response.json();
+                
+                // CRITICAL FIX: Guarantee exactly 1:1 parity with the map color by pulling from the identical cache.
+                let alertLevel = 0;
+                let alertColor = 'Green';
+                
+                const overviewData = districtData[districtId];
+                if (overviewData) {
+                    if (overviewData.alert && overviewData.alert.level !== undefined) {
+                        alertLevel = overviewData.alert.level;
+                        alertColor = overviewData.alert.color || 'Green';
+                    } else if (overviewData.max_alert && overviewData.max_alert.level !== undefined) {
+                        alertLevel = overviewData.max_alert.level;
+                        alertColor = overviewData.max_alert.color || 'Green';
+                    } else if (overviewData.summary && overviewData.summary.max_alert) {
+                        alertLevel = overviewData.summary.max_alert.level;
+                        alertColor = overviewData.summary.max_alert.color || 'Green';
+                    } else if (overviewData.level !== undefined) {
+                        alertLevel = overviewData.level;
+                        alertColor = overviewData.color || 'Green';
+                    }
+                } else {
+                    // Fallback to the requested single-day alert if overview cache somehow missed it
+                    const targetAlert = data?.days?.[0]?.alert || data?.summary?.max_alert || data?.alert || { level: 0, color: 'Green' };
+                    alertLevel = targetAlert.level || 0;
+                    alertColor = targetAlert.color || 'Green';
+                }
+
+                // Parse standard sensor variables 
+                const currentWbgt = data?.current?.thermal?.wbgt_sun_c ?? data?.days?.[0]?.thermal?.peak_wbgt_sun_c ?? data?.days?.[0]?.thermal?.peak_final_feels_like_c ?? 0;
+                const teleTemp = data?.current?.temperature_c ?? data?.days?.[0]?.tmax_c ?? 0;
+                const teleHum = data?.current?.relative_humidity_pct ?? 51; // Fallback for historical replay without current RH
+                const teleRad = data?.current?.thermal?.solar_load_c ?? data?.days?.[0]?.thermal?.solar_load_at_peak_c ?? 0;
+                const teleWind = data?.current?.wind_speed_ms ?? 0.6; // Fallback for historical replay without current wind
+
+                document.getElementById('ward-name').textContent = (data?.district?.name || displayName || districtId).toUpperCase();
+                document.getElementById('ward-wbgt').textContent = currentWbgt.toFixed(1);
+                document.getElementById('ward-desc').textContent = data?.summary?.headline || "Historical heatwave simulation active.";
+                
+                const riskBadge = document.getElementById('ward-risk');
+                riskBadge.textContent = alertColor.toUpperCase();
+                
+                // Apply dynamic classes 
+                let riskClass = 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20'; 
+                let chartColor = '#34d399'; 
+                
+                if (alertLevel === 1) { 
+                    riskClass = 'text-yellow-400 bg-yellow-400/10 border-yellow-400/20'; 
+                    chartColor = '#fbbf24'; 
+                } else if (alertLevel === 2) { 
+                    riskClass = 'text-orange-500 bg-orange-500/10 border-orange-500/20'; 
+                    chartColor = '#fb923c'; 
+                } else if (alertLevel >= 3) { 
+                    riskClass = 'text-rose-500 bg-rose-500/10 border-rose-500/20 pulse-red'; 
+                    chartColor = '#fb7185'; 
+                }
+                riskBadge.className = `px-3 py-1 rounded text-xs font-bold uppercase tracking-wide border ${riskClass}`;
+
+                // 2. Update Live Sensor Feeds
+                document.getElementById('tele-temp').textContent = teleTemp.toFixed(1);
+                document.getElementById('tele-hum').textContent = teleHum;
+                document.getElementById('tele-rad').textContent = teleRad.toFixed(1);
+                document.getElementById('tele-wind').textContent = teleWind.toFixed(1);
+
+                // 3. Update Demographics safely
+                const census = data?.population?.vulnerability?.components || [];
+                const getVal = (indicator) => census.find(c => c.indicator === indicator)?.value || 0;
+                
+                const elderlyVal = getVal('age_50_plus_pct');
+                const workersVal = getVal('agri_workers_pct');
+                const densityVal = getVal('illiteracy_pct'); 
+
+                document.getElementById('demo-elderly-val').textContent = elderlyVal.toFixed(1) + '%';
+                document.getElementById('demo-elderly-bar').style.width = elderlyVal + '%';
+                
+                document.getElementById('demo-workers-val').textContent = workersVal.toFixed(1) + '%';
+                document.getElementById('demo-workers-bar').style.width = workersVal + '%';
+                
+                document.getElementById('demo-density-val').textContent = densityVal.toFixed(1) + '%';
+                document.getElementById('demo-density-bar').style.width = densityVal + '%';
+
+                // 4. Update the Forecast Chart
+                const daysArr = data?.days || [];
+                const forecastDates = daysArr.map(day => day?.weekday || 'Day');
+                const forecastTemps = daysArr.map(day => day?.tmax_c || 0);
+                
+                if(riskChart) {
+                    riskChart.data.labels = forecastDates.length ? forecastDates : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+                    riskChart.data.datasets[0].data = forecastTemps.length ? forecastTemps : [0,0,0,0,0];
+                    
+                    riskChart.data.datasets[0].borderColor = chartColor;
+                    riskChart.data.datasets[0].pointBorderColor = chartColor;
+                    const ctx = document.getElementById('predictionChart').getContext('2d');
+                    let newGradient = ctx.createLinearGradient(0, 0, 0, 400);
+                    newGradient.addColorStop(0, chartColor + '80');
+                    newGradient.addColorStop(1, chartColor + '00');
+                    riskChart.data.datasets[0].backgroundColor = newGradient;
+                    
+                    riskChart.update();
+                }
+
+                // 5. Action Panel Logic
+                const actionPanel = document.getElementById('action-panel');
+                const triggerBtn = document.getElementById('trigger-btn');
+                
+                if (alertLevel >= 2) { 
+                    actionPanel.className = "glass-panel rounded-xl p-4 border-l-4 transition-colors duration-300 border-l-rose-500";
+                    triggerBtn.className = "w-full py-3 rounded-lg font-bold text-sm transition-all duration-300 flex items-center justify-center gap-2 bg-rose-600 text-white hover:bg-rose-500 cursor-pointer pulse-red";
+                    triggerBtn.disabled = false;
+                } else {
+                    actionPanel.className = "glass-panel rounded-xl p-4 border-l-4 transition-colors duration-300 border-l-gray-600";
+                    triggerBtn.className = "w-full py-3 rounded-lg font-bold text-sm transition-all duration-300 flex items-center justify-center gap-2 bg-gray-700 text-gray-400 cursor-not-allowed";
+                    triggerBtn.disabled = true;
+                }
+
+            } catch (error) {
+                console.error("Failed to fetch data for", districtId, error);
+                document.getElementById('ward-desc').textContent = "JS Error: " + error.message;
+            }
+        }
+        
+        async function bootSystem() {
+            initMap();
+            initChart();
+            
+            try {
+                // Fetch overview colors from API using Seshant's specific replay date
+                const overviewRes = await fetch('http://127.0.0.1:8000/punjab/overview?replay_date=2024-05-26');
+                if (overviewRes.ok) {
+                    const overviews = await overviewRes.json();
+                    
+                    // Ultra-robust parsing for whatever format Seshant returns
+                    let overviewArray = Array.isArray(overviews) ? overviews : 
+                                       (Array.isArray(overviews.data) ? overviews.data : 
+                                       (Array.isArray(overviews.districts) ? overviews.districts : Object.values(overviews)));
+                    
+                    overviewArray.forEach(o => {
+                        if (typeof o === 'object' && o !== null) {
+                            let distId = o.id || (o.district && o.district.id) || o.district_id;
+                            if (distId) districtData[distId] = o;
+                        }
+                    });
+                }
+            } catch(err) {
+                console.warn("Overview fetch failed, map will default to green", err);
+            }
+                
+            try {
+                // Draw map
+                if (typeof punjabGeoJSON === 'undefined') {
+                    throw new Error("GeoJSON variable not found. Did you create punjabData.js?");
+                }
+
+                geojsonLayer = L.geoJson(punjabGeoJSON, {
+                    style: styleFeature,
+                    onEachFeature: onEachFeature
+                }).addTo(map);
+                
+                map.fitBounds(geojsonLayer.getBounds());
+                
+                // Click Tarn Taran on boot
+                selectDistrict('tarn_taran', 'Tarn Taran');
+                
+            } catch (e) {
+                console.error("System boot error:", e);
+                document.getElementById('ward-desc').textContent = "Error loading map: " + e.message;
+            }
+        }
+
+        // --- Alert Trigger Mechanism ---
+        function triggerAlert() {
+            if (document.getElementById('trigger-btn').disabled) return;
+            
+            const btn = document.getElementById('trigger-btn');
+            const originalHtml = btn.innerHTML;
+            
+            btn.innerHTML = `<i class="ph ph-spinner animate-spin text-lg"></i><span>DISPATCHING...</span>`;
+            btn.classList.remove('pulse-red');
+            
+            // Get current district info dynamically from the UI
+	const targetDistrict = document.getElementById('ward-name').textContent;
+	const riskLevel = document.getElementById('ward-risk').textContent;
+	const wbgt = document.getElementById('ward-wbgt').textContent;
+
+	// Format the emergency message
+	const text = `🚨 *HEAT ACTION PLAN INITIATED* 🚨%0A%0A*District:* ${targetDistrict}%0A*Alert Level:* ${riskLevel}%0A*Peak WBGT:* ${wbgt}°C%0A%0A*Required Interventions:*%0A1. Open Municipal Cooling Centers%0A2. Suspend Outdoor Agri/Const. Work%0A%0ADispatched by HTSI-Core Command.`;
+
+	// Open WhatsApp automatically (Replace with your own phone number for the demo)
+	window.open(`https://wa.me/918708005017?text=${text}`, '_blank');
+
+        }
+
+        // Start App
+        window.onload = bootSystem;
+    </script>
+</body>
+</html>
